@@ -24,56 +24,62 @@ export const retrieveRelevantChunksForQuery = async ({
   chapterProgress,
   topK = 5,
 }) => {
-  const available = await isVectorSearchAvailable();
-  if (!available) return [];
+  try {
+    const available = await isVectorSearchAvailable();
+    if (!available) return [];
 
-  const limit = clampInt(topK, 1, 10, 5);
-  const queryVector = await embedText(query);
-  const indexName = getVectorIndexName();
-  const maxChunkChars = getMaxChunkChars();
+    const limit = clampInt(topK, 1, 10, 5);
+    const queryVector = await embedText(query);
+    const indexName = getVectorIndexName();
+    const maxChunkChars = getMaxChunkChars();
 
-  const filter = buildSpoilerFilter(gutenbergId, chapterProgress);
-  const numCandidates = Math.min(200, Math.max(50, limit * 40));
+    const filter = buildSpoilerFilter(gutenbergId, chapterProgress);
+    const numCandidates = Math.min(200, Math.max(50, limit * 40));
 
-  const coll = mongoose.connection.collection('book_chunks');
-  const raw = await coll.aggregate([
-    {
-      $vectorSearch: {
-        index: indexName,
-        path: 'embedding',
-        queryVector,
-        numCandidates,
-        limit,
-        filter,
+    const coll = mongoose.connection.collection('book_chunks');
+    const raw = await coll.aggregate([
+      {
+        $vectorSearch: {
+          index: indexName,
+          path: 'embedding',
+          queryVector,
+          numCandidates,
+          limit,
+          filter,
+        },
       },
-    },
-    {
-      $project: {
-        _id: 0,
-        chapterIndex: 1,
-        chapterTitle: 1,
-        chunkIndex: 1,
-        text: 1,
-        score: { $meta: 'vectorSearchScore' },
+      {
+        $project: {
+          _id: 0,
+          chapterIndex: 1,
+          chapterTitle: 1,
+          chunkIndex: 1,
+          text: 1,
+          score: { $meta: 'vectorSearchScore' },
+        },
       },
-    },
-  ]).toArray();
+    ]).toArray();
 
-  const progressNum = Number.isFinite(Number(chapterProgress)) ? Math.floor(Number(chapterProgress)) : null;
-  const reranked = raw
-    .map((item) => ({
-      chapterIndex: item.chapterIndex,
-      chapterTitle: item.chapterTitle,
-      chunkIndex: item.chunkIndex,
-      text: String(item.text || '').slice(0, maxChunkChars),
-      score: Number(item.score) || 0,
-      proximity: progressNum == null ? 0 : Math.abs((Number(item.chapterIndex) || 0) - progressNum),
-    }))
-    .sort((a, b) => {
-      if (a.proximity !== b.proximity) return a.proximity - b.proximity;
-      return b.score - a.score;
-    });
+    const progressNum = Number.isFinite(Number(chapterProgress)) ? Math.floor(Number(chapterProgress)) : null;
+    const reranked = raw
+      .map((item) => ({
+        chapterIndex: item.chapterIndex,
+        chapterTitle: item.chapterTitle,
+        chunkIndex: item.chunkIndex,
+        text: String(item.text || '').slice(0, maxChunkChars),
+        score: Number(item.score) || 0,
+        proximity: progressNum == null ? 0 : Math.abs((Number(item.chapterIndex) || 0) - progressNum),
+      }))
+      .sort((a, b) => {
+        if (a.proximity !== b.proximity) return a.proximity - b.proximity;
+        return b.score - a.score;
+      });
 
-  return reranked.slice(0, limit);
+    return reranked.slice(0, limit);
+  } catch (error) {
+    // Retrieval failures should never take down chat; silently downgrade.
+    // eslint-disable-next-line no-console
+    console.warn('[BOOKFRIEND][RAG] Retrieval failed; falling back to chat mode:', error?.message || error);
+    return [];
+  }
 };
-

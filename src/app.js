@@ -83,6 +83,8 @@ export const createApp = () => {
   app.use('/agent', agentRoutes);
 
   // Centralized error handling.
+  const exposeErrors = String(process.env.BOOKFRIEND_EXPOSE_ERRORS || '').trim() === '1';
+
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     if (res.headersSent) return;
@@ -95,10 +97,9 @@ export const createApp = () => {
     const status = Number(err?.statusCode || err?.status || 500);
     const safeStatus = Number.isFinite(status) && status >= 400 && status <= 599 ? status : 500;
     const body = { message: safeStatus >= 500 ? 'Server error.' : (err?.message || 'Request failed.') };
-    if (!isProd() && err) body.error = err?.message || String(err);
+    if ((!isProd() || exposeErrors) && err) body.error = err?.message || String(err);
     res.status(safeStatus).json(body);
   });
 
   return app;
 };
-

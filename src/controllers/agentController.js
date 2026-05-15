@@ -78,12 +78,16 @@ export const sendAgentMessage = async (req, res) => {
   const effectiveRag = Boolean(bookMeta?.indexed) && Boolean(gutenbergId != null);
 
   if (effectiveRag) {
-    retrievedChunks = await retrieveRelevantChunksForQuery({
-      gutenbergId,
-      query: String(message),
-      chapterProgress,
-      topK,
-    });
+    try {
+      retrievedChunks = await retrieveRelevantChunksForQuery({
+        gutenbergId,
+        query: String(message),
+        chapterProgress,
+        topK,
+      });
+    } catch {
+      retrievedChunks = [];
+    }
   }
 
   const promptPayload = buildBookFriendPrompt({
