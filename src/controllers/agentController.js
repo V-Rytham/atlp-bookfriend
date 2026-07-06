@@ -26,7 +26,7 @@ const parseGutenbergId = (value) => {
 export const getBookStatus = async (req, res) => {
   const gutenbergId = parseGutenbergId(req.params?.gutenbergId);
   if (!gutenbergId) return res.status(400).json({ message: 'Invalid gutenbergId.' });
-
+  // Go through the books collection and find document based on indx and return just the value fo the field 'indexed' in simple JS object form
   const book = await Book.findOne({ gutenbergId }).select('indexed').lean();
   const indexed = Boolean(book?.indexed);
 
@@ -34,7 +34,7 @@ export const getBookStatus = async (req, res) => {
 };
 
 export const startAgentSession = async (req, res) => {
-  const { user_id: userId, book_id: bookId } = req.body || {};
+  const { user_id: userId, book_id: bookId, book_title: bookTitle, book_author: bookAuthor } = req.body || {};
   if (!userId || !bookId) return res.status(400).json({ message: 'user_id and book_id are required.' });
 
   let gutenbergId = parseGutenbergId(bookId);
@@ -42,12 +42,30 @@ export const startAgentSession = async (req, res) => {
     const bookById = await Book.findById(String(bookId)).select('gutenbergId indexed').lean();
     gutenbergId = bookById?.gutenbergId || null;
   }
-  if (!gutenbergId) return res.status(400).json({ message: 'book_id must be a Gutenberg id (e.g. 1342).' });
 
-  const book = await Book.findOne({ gutenbergId }).select('indexed').lean();
-  const ragEnabled = Boolean(book?.indexed);
+  let ragEnabled = false;
+  let title = String(bookTitle || '').trim();
+  let author = String(bookAuthor || '').trim();
 
-  const sessionId = await createSession({ userId, gutenbergId, ragEnabled });
+  if (gutenbergId) {
+    // Gutenberg book: enable RAG when indexed, and backfill title/author from
+    // the ingested Book record if the caller did not provide them.
+    const book = await Book.findOne({ gutenbergId }).select('indexed title author').lean();
+    ragEnabled = Boolean(book?.indexed);
+    if (!title) title = String(book?.title || '').trim();
+    if (!author) author = String(book?.author || '').trim();
+  }
+
+  // Non-Gutenberg (or unindexed) books are supported: the agent runs in
+  // fallback / metadata-only mode using the title & author supplied at start.
+  const sessionId = await createSession({
+    userId,
+    gutenbergId: gutenbergId || null,
+    ragEnabled,
+    bookId: String(bookId),
+    title,
+    author,
+  });
   return res.status(201).json({ session_id: sessionId });
 };
 
@@ -73,6 +91,18 @@ export const sendAgentMessage = async (req, res) => {
     bookMeta = await Book.findOne({ gutenbergId })
       .select('title author synopsis tags gutenbergId indexed chapterCount')
       .lean();
+  }
+
+  // Non-Gutenberg book (or a Gutenberg id with no ingested Book record): fall
+  // back to the title/author captured on the session so the model still knows
+  // which book it is discussing.
+  if (!bookMeta) {
+    bookMeta = {
+      title: session?.title || 'Unknown title',
+      author: session?.author || 'Unknown author',
+      gutenbergId: null,
+      indexed: false,
+    };
   }
 
   const effectiveRag = Boolean(bookMeta?.indexed) && Boolean(gutenbergId != null);

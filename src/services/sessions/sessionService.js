@@ -8,7 +8,7 @@ const getMaxMessagesPerSession = () => {
   return Number.isFinite(parsed) ? clamp(parsed, 10, 200) : 40;
 };
 
-export const createSession = async ({ userId, gutenbergId, ragEnabled }) => {
+export const createSession = async ({ userId, gutenbergId, ragEnabled, bookId = null, title = '', author = '' }) => {
   const sessionId = crypto.randomUUID();
   const expiresAt = Session.buildExpiresAt();
 
@@ -17,6 +17,9 @@ export const createSession = async ({ userId, gutenbergId, ragEnabled }) => {
     userId: String(userId),
     gutenbergId: gutenbergId == null ? null : Number(gutenbergId),
     ragEnabled: Boolean(ragEnabled),
+    bookId: bookId == null ? null : String(bookId),
+    title: String(title || ''),
+    author: String(author || ''),
     messages: [],
     expiresAt,
   });

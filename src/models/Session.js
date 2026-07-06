@@ -16,6 +16,10 @@ const sessionSchema = new mongoose.Schema(
     userId: { type: String, required: true, index: true },
     gutenbergId: { type: Number, default: null, index: true },
     ragEnabled: { type: Boolean, default: false },
+    // Book identity for non-Gutenberg titles (fallback / metadata-only mode).
+    bookId: { type: String, default: null },
+    title: { type: String, default: '' },
+    author: { type: String, default: '' },
     messages: { type: [messageSchema], default: [] },
     expiresAt: { type: Date, required: true, index: true },
   },
